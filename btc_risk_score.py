@@ -26,7 +26,8 @@ import numpy as np
 import pandas as pd
 import requests
 
-BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+BINANCE_KLINES_URL = "https://data-api.binance.vision/api/v3/klines"
+BINANCE_KLINES_URL_FALLBACK = "https://api.binance.com/api/v3/klines"
 SYMBOL = "BTCUSDT"
 INTERVAL = "1d"
 DATA_DIR = Path(__file__).parent / "data"
@@ -42,6 +43,20 @@ WEIGHTS = {
 BINANCE_LISTING_DATE = pd.Timestamp("2017-08-17")  # BTCUSDT earliest daily candle on Binance
 
 
+def _get_with_fallback(params):
+    """Try the geo-block-resistant mirror first, fall back to the main API domain."""
+    try:
+        resp = requests.get(BINANCE_KLINES_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        return resp
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        print(f"  Primary endpoint failed (status={status}), retrying via fallback domain...")
+        resp = requests.get(BINANCE_KLINES_URL_FALLBACK, params=params, timeout=30)
+        resp.raise_for_status()
+        return resp
+
+
 def fetch_klines(start_time_ms=None, limit=1000):
     """Fetch daily klines from Binance, paginating until caught up to now."""
     all_rows = []
@@ -50,8 +65,7 @@ def fetch_klines(start_time_ms=None, limit=1000):
         params = {"symbol": SYMBOL, "interval": INTERVAL, "limit": limit}
         if cursor is not None:
             params["startTime"] = cursor
-        resp = requests.get(BINANCE_KLINES_URL, params=params, timeout=30)
-        resp.raise_for_status()
+        resp = _get_with_fallback(params)
         rows = resp.json()
         if not rows:
             break
@@ -212,7 +226,7 @@ def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.update:
-        start_ms = int((pd.Timestamp.utcnow() - pd.Timedelta(days=400)).timestamp() * 1000)
+        start_ms = int((pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=400)).timestamp() * 1000)
     else:
         start_ms = int(BINANCE_LISTING_DATE.timestamp() * 1000)
 
