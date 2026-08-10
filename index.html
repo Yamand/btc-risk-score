@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.1.0/dist/chartjs-plugin-zoom.min.js"></script>
 <style>
   :root {
     --bg-0: #0a0e14;
@@ -248,6 +250,24 @@
   .range-toggle button:hover { color: var(--text-hi); border-color: rgba(255,255,255,0.25); }
   .range-toggle button.active { background: var(--btc); color: #12100c; border-color: var(--btc); font-weight: 600; }
 
+  .zoom-controls {
+    display: flex;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+  }
+  .zoom-controls button {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    color: var(--text-mid);
+    padding: 5px 11px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .zoom-controls button:hover { color: var(--text-hi); border-color: rgba(255,255,255,0.25); }
+  .zoom-controls button:active { transform: scale(0.95); }
+
   .charts-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -325,10 +345,17 @@
     <div class="glass chart-card">
       <div class="chart-header">
         <h2 style="margin:0;">Price &amp; risk score</h2>
-        <div class="range-toggle" id="range-toggle">
-          <button data-range="180">6M</button>
-          <button data-range="365">1Y</button>
-          <button data-range="0" class="active">All</button>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <div class="range-toggle" id="range-toggle">
+            <button data-range="180">6M</button>
+            <button data-range="365">1Y</button>
+            <button data-range="0" class="active">All</button>
+          </div>
+          <div class="zoom-controls" id="zoom-controls">
+            <button id="zoom-in" title="Zoom in (scroll up)">+</button>
+            <button id="zoom-out" title="Zoom out (scroll down)">−</button>
+            <button id="zoom-reset" title="Reset zoom">Reset</button>
+          </div>
         </div>
       </div>
       <canvas id="priceChart"></canvas>
@@ -575,6 +602,23 @@ async function init() {
               },
             },
           },
+          zoom: {
+            zoom: {
+              wheel: { enabled: true, speed: 0.1 },
+              pinch: { enabled: true },
+              mode: 'xy',
+            },
+            pan: {
+              enabled: true,
+              mode: 'xy',
+              modifierKey: 'ctrl',
+            },
+            limits: {
+              x: { min: 'original', max: 'original' },
+              y: { min: 'original', max: 'original' },
+              y1: { min: 'original', max: 'original' },
+            },
+          },
         },
         scales: {
           x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { maxTicksLimit: 8 } },
@@ -632,6 +676,22 @@ async function init() {
     document.querySelectorAll('#range-toggle button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     renderCharts(Number(btn.dataset.range));
+  });
+
+  // Zoom controls
+  document.getElementById('zoom-in').addEventListener('click', () => {
+    if (!priceChart) return;
+    priceChart.zoom(1.2, 'auto');
+  });
+
+  document.getElementById('zoom-out').addEventListener('click', () => {
+    if (!priceChart) return;
+    priceChart.zoom(0.8, 'auto');
+  });
+
+  document.getElementById('zoom-reset').addEventListener('click', () => {
+    if (!priceChart) return;
+    priceChart.resetZoom();
   });
 }
 
