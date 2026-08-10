@@ -142,30 +142,38 @@ def compute_composite(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def label_for_score(score):
-    if pd.isna(score):
-        return "insufficient history"
-    if score < 0.20:
-        return "accumulate hard"
-    if score < 0.40:
-        return "accumulate"
-    if score < 0.60:
-        return "neutral"
-    if score < 0.80:
-        return "reduce buys"
-    return "distribute"
+# Base weekly DCA size. Zone sizes below are BASE_WEEKLY_USD * multiplier.
+BASE_WEEKLY_USD = 10
+
+# Actual DCA rule table (BTC/USDT, base $10/week).
+# Sell tiers only fire in practice once holdings >= $500 per asset — that's a
+# portfolio-level gate this script can't see (it only knows price/score), so
+# sell zones are always computed here and the $500 gate is applied by you
+# (or by the dashboard, which does know your holdings) before acting on them.
+ZONES = [
+    # (upper_bound_exclusive, zone, tier, multiplier, action)
+    (0.10, "Extreme Buy",   "buy",   3.0, "Max accumulate"),
+    (0.20, "Strong Buy",    "buy",   1.5, "Accumulate"),
+    (0.25, "Buy",           "buy",   1.0, "Normal DCA"),
+    (0.35, "Reduced Buy",   "buy",   0.5, "Slow down"),
+    (0.60, "Stop — Hold",   "hold",  0.0, "Accumulation done"),
+    (0.70, "Sell Tier 1",   "sell1", None, "Exit 5% of holdings"),
+    (0.80, "Sell Tier 2",   "sell2", None, "Exit 10% of holdings"),
+    (1.01, "Sell Tier 3 / Exit", "sell3", None, "Exit 20% or full position"),
+]
 
 
-def multiplier_for_score(score):
+def zone_for_score(score):
     if pd.isna(score):
-        return None
-    if score < 0.25:
-        return 3.0
-    if score < 0.50:
-        return 2.0
-    if score < 0.75:
-        return 1.0
-    return 0.5
+        return {"zone": "Insufficient history", "tier": "none", "multiplier": None,
+                "size_usd": None, "action": "—"}
+    for upper, zone, tier, mult, action in ZONES:
+        if score < upper:
+            size = round(BASE_WEEKLY_USD * mult, 2) if mult is not None else None
+            return {"zone": zone, "tier": tier, "multiplier": mult, "size_usd": size, "action": action}
+    # score == 1.0 edge case, falls into last zone above via < 1.01
+    upper, zone, tier, mult, action = ZONES[-1]
+    return {"zone": zone, "tier": tier, "multiplier": mult, "size_usd": None, "action": action}
 
 
 def build_output(df: pd.DataFrame) -> list:
@@ -173,12 +181,16 @@ def build_output(df: pd.DataFrame) -> list:
     for _, row in df.iterrows():
         if pd.isna(row["composite_score"]):
             continue
+        z = zone_for_score(row["composite_score"])
         out.append({
             "date": row["date"].strftime("%Y-%m-%d"),
             "close": round(row["close"], 2),
             "composite_score": round(row["composite_score"], 4),
-            "label": label_for_score(row["composite_score"]),
-            "multiplier": multiplier_for_score(row["composite_score"]),
+            "zone": z["zone"],
+            "tier": z["tier"],
+            "multiplier": z["multiplier"],
+            "size_usd": z["size_usd"],
+            "action": z["action"],
             "components": {
                 "log_regression": round(row["log_regression"], 4) if not pd.isna(row["log_regression"]) else None,
                 "ma200_multiple": round(row["ma200_multiple"], 4) if not pd.isna(row["ma200_multiple"]) else None,
@@ -228,8 +240,9 @@ def main():
 
     if output:
         latest = output[-1]
+        size = f"${latest['size_usd']}" if latest['size_usd'] is not None else "—"
         print(f"\nLatest ({latest['date']}): score={latest['composite_score']} "
-              f"[{latest['label']}] multiplier={latest['multiplier']}x")
+              f"[{latest['zone']}] size={size}/wk — {latest['action']}")
 
 
 if __name__ == "__main__":
