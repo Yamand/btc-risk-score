@@ -32,6 +32,16 @@ SYMBOL = "BTCUSDT"
 INTERVAL = "1d"
 DATA_DIR = Path(__file__).parent / "data"
 HISTORY_FILE = DATA_DIR / "btc_risk_history.json"
+# Raw close-price cache: EVERY fetched date/close, including the pre-warmup
+# rows that never get a composite_score (dropped from HISTORY_FILE by
+# build_output). --update merges from THIS file, not from HISTORY_FILE, so
+# the regression fit and expanding percentile ranks always see the full
+# price series and match a full recompute exactly. Reconstructing prices
+# from the scored output alone silently drops the earliest ~200-260 days,
+# which skews the global log-regression fit (those rows anchor the low end
+# of the log-days range) and can shift the composite score enough to flip
+# a DCA zone near a boundary.
+PRICES_FILE = DATA_DIR / "btc_prices_raw.json"
 
 WEIGHTS = {
     "log_regression": 0.35,
@@ -216,10 +226,14 @@ def build_output(df: pd.DataFrame) -> list:
 
 
 def load_existing_closes() -> pd.DataFrame:
-    """Reconstruct a date/close DataFrame from the existing history file, if any."""
-    if not HISTORY_FILE.exists():
+    """
+    Load the FULL raw close-price cache (not the scored HISTORY_FILE, which is
+    missing the pre-warmup rows — see PRICES_FILE comment above for why that
+    distinction matters).
+    """
+    if not PRICES_FILE.exists():
         return pd.DataFrame(columns=["date", "close"])
-    existing = json.loads(HISTORY_FILE.read_text())
+    existing = json.loads(PRICES_FILE.read_text())
     if not existing:
         return pd.DataFrame(columns=["date", "close"])
     df = pd.DataFrame({
@@ -227,6 +241,13 @@ def load_existing_closes() -> pd.DataFrame:
         "close": [r["close"] for r in existing],
     })
     return df
+
+
+def save_prices_raw(df: pd.DataFrame) -> None:
+    """Persist the full date/close series (including pre-warmup rows) for future merges."""
+    rows = [{"date": d.strftime("%Y-%m-%d"), "close": round(c, 2)}
+            for d, c in zip(df["date"], df["close"])]
+    PRICES_FILE.write_text(json.dumps(rows, indent=2))
 
 
 def main():
@@ -273,8 +294,9 @@ def main():
     df = compute_composite(df)
     output = build_output(df)
 
+    save_prices_raw(df[["date", "close"]])
     HISTORY_FILE.write_text(json.dumps(output, indent=2))
-    print(f"Wrote {HISTORY_FILE}, {len(output)} rows")
+    print(f"Wrote {HISTORY_FILE}, {len(output)} rows ({PRICES_FILE.name} raw cache also updated)")
 
     if output:
         latest = output[-1]
