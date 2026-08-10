@@ -136,11 +136,61 @@
     letter-spacing: 0.01em;
   }
 
+  .action-text {
+    font-size: 12.5px;
+    color: var(--text-mid);
+    margin-top: 8px;
+  }
+
   .stat-row {
     display: flex;
     gap: 22px;
     margin-top: 20px;
     font-family: 'JetBrains Mono', monospace;
+  }
+
+  .rule-table {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .rule-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 90px 90px 1.4fr;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid transparent;
+    font-size: 13px;
+    transition: all 0.15s ease;
+  }
+
+  .rule-row.active {
+    background: rgba(255,255,255,0.05);
+    border-color: var(--glass-hi);
+  }
+
+  .rule-row .rc-score { font-family: 'JetBrains Mono', monospace; color: var(--text-mid); font-size: 12px; }
+  .rule-row .rc-zone { font-weight: 600; }
+  .rule-row .rc-mult { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-mid); text-align: right; }
+  .rule-row .rc-size { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; text-align: right; font-weight: 600; }
+  .rule-row .rc-action { color: var(--text-mid); font-size: 12.5px; }
+
+  .rule-row.active .rc-action { color: var(--text-hi); }
+
+  .rule-note {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--text-low);
+    line-height: 1.5;
+  }
+
+  @media (max-width: 640px) {
+    .rule-row { grid-template-columns: 70px 1fr 60px; row-gap: 4px; }
+    .rule-row .rc-mult, .rule-row .rc-action { display: none; }
   }
 
   .stat-row .stat { text-align: center; }
@@ -245,14 +295,15 @@
           </div>
         </div>
         <div class="label-pill" id="score-label">neutral</div>
+        <div class="action-text" id="action-text">—</div>
         <div class="stat-row">
           <div class="stat">
             <div class="v" id="stat-price">$0</div>
             <div class="k">BTC/USDT</div>
           </div>
           <div class="stat">
-            <div class="v" id="stat-mult">1.0&times;</div>
-            <div class="k">DCA Multiplier</div>
+            <div class="v" id="stat-size">$10</div>
+            <div class="k">This Week</div>
           </div>
         </div>
       </div>
@@ -261,6 +312,14 @@
         <h2>Component breakdown &middot; today</h2>
         <div class="comp-list" id="comp-list"></div>
       </div>
+    </div>
+
+    <div class="glass chart-card">
+      <div class="chart-header">
+        <h2 style="margin:0;">DCA rule table &middot; BTC/USDT &middot; base $10/week</h2>
+      </div>
+      <div class="rule-table" id="rule-table"></div>
+      <div class="rule-note">Sell tiers only trigger once BTC holdings are &ge;$500 &mdash; below that, stay in accumulation mode regardless of zone.</div>
     </div>
 
     <div class="glass chart-card">
@@ -297,6 +356,30 @@ const COMPONENT_META = [
   { key: 'vol_adj_momentum', name: 'Vol-adj momentum', weight: 20 },
 ];
 
+// Mirrors ZONES in btc_risk_score.py — base $10/week
+const ZONES = [
+  { upper: 0.10, zone: 'Extreme Buy',        mult: 3.0,  size: 30, action: 'Max accumulate',           color: '#16a34a' },
+  { upper: 0.20, zone: 'Strong Buy',         mult: 1.5,  size: 15, action: 'Accumulate',                color: '#22c55e' },
+  { upper: 0.25, zone: 'Buy',                mult: 1.0,  size: 10, action: 'Normal DCA',                color: '#4ade80' },
+  { upper: 0.35, zone: 'Reduced Buy',        mult: 0.5,  size: 5,  action: 'Slow down',                 color: '#86efac' },
+  { upper: 0.60, zone: 'Stop — Hold',        mult: 0.0,  size: 0,  action: 'Accumulation done',         color: '#9aa4b5' },
+  { upper: 0.70, zone: 'Sell Tier 1',        mult: null, size: null, action: 'Exit 5% of holdings',     color: '#f5a623' },
+  { upper: 0.80, zone: 'Sell Tier 2',        mult: null, size: null, action: 'Exit 10% of holdings',    color: '#f0713f' },
+  { upper: 1.01, zone: 'Sell Tier 3 / Exit', mult: null, size: null, action: 'Exit 20% or full position', color: '#f0553f' },
+];
+
+function zoneFor(score) {
+  for (const z of ZONES) if (score < z.upper) return z;
+  return ZONES[ZONES.length - 1];
+}
+
+function zoneRangeLabel(i) {
+  const lo = i === 0 ? 0 : ZONES[i - 1].upper;
+  const hi = ZONES[i].upper;
+  if (hi > 1) return `> ${lo.toFixed(2)}`;
+  return i === 0 ? `< ${hi.toFixed(2)}` : `${lo.toFixed(2)}\u2013${hi.toFixed(2)}`;
+}
+
 function scoreColor(s) {
   // green -> amber -> red across 0 -> 1
   const stops = [
@@ -315,7 +398,7 @@ function scoreColor(s) {
   return s < 0 ? 'rgb(51,209,122)' : 'rgb(240,85,63)';
 }
 
-function drawGauge(score) {
+function drawGauge(score, needleColor) {
   const svg = document.getElementById('gauge-svg');
   const cx = 110, cy = 110, r = 92;
   const startAngle = 145, endAngle = 395; // degrees, sweeping 250deg arc
@@ -329,23 +412,28 @@ function drawGauge(score) {
     return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
   }
 
-  const segments = 40;
+  // Background arc segmented by the actual zone boundaries, not a smooth gradient —
+  // this mirrors the discrete rule table rather than implying a continuous scale.
   let paths = '';
-  for (let i = 0; i < segments; i++) {
-    const a0 = startAngle + ((endAngle - startAngle) * i) / segments;
-    const a1 = startAngle + ((endAngle - startAngle) * (i + 1)) / segments;
-    const mid = i / segments;
-    paths += `<path d="${arcPath(a0, a1)}" stroke="${scoreColor(mid)}" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.28"/>`;
+  let prevUpper = 0;
+  for (const z of ZONES) {
+    const hi = Math.min(z.upper, 1);
+    const a0 = startAngle + (endAngle - startAngle) * prevUpper;
+    const a1 = startAngle + (endAngle - startAngle) * hi;
+    paths += `<path d="${arcPath(a0, a1)}" stroke="${z.color}" stroke-width="14" fill="none" stroke-linecap="butt" opacity="0.28"/>`;
+    prevUpper = hi;
+    if (hi >= 1) break;
   }
 
   const needleAngle = startAngle + (endAngle - startAngle) * Math.min(Math.max(score, 0), 1);
   const [nx, ny] = pointOn(needleAngle);
   const fillArc = arcPath(startAngle, needleAngle);
+  const color = needleColor || zoneFor(score).color;
 
   svg.innerHTML = `
     ${paths}
-    <path d="${fillArc}" stroke="${scoreColor(score)}" stroke-width="14" fill="none" stroke-linecap="round"/>
-    <circle cx="${nx}" cy="${ny}" r="7" fill="${scoreColor(score)}" stroke="#0a0e14" stroke-width="2.5"/>
+    <path d="${fillArc}" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round"/>
+    <circle cx="${nx}" cy="${ny}" r="7" fill="${color}" stroke="#0a0e14" stroke-width="2.5"/>
   `;
 }
 
@@ -374,17 +462,34 @@ async function init() {
   document.getElementById('app').style.display = 'block';
 
   const latest = data[data.length - 1];
+  const z = zoneFor(latest.composite_score);
   document.getElementById('updated-label').textContent = `updated ${latest.date}`;
   document.getElementById('score-num').textContent = latest.composite_score.toFixed(2);
-  document.getElementById('score-num').style.color = scoreColor(latest.composite_score);
-  document.getElementById('score-label').textContent = latest.label;
-  document.getElementById('score-label').style.background = scoreColor(latest.composite_score) + '22';
-  document.getElementById('score-label').style.color = scoreColor(latest.composite_score);
-  document.getElementById('score-label').style.border = `1px solid ${scoreColor(latest.composite_score)}55`;
+  document.getElementById('score-num').style.color = z.color;
+  document.getElementById('score-label').textContent = latest.zone ?? z.zone;
+  document.getElementById('score-label').style.background = z.color + '22';
+  document.getElementById('score-label').style.color = z.color;
+  document.getElementById('score-label').style.border = `1px solid ${z.color}55`;
+  document.getElementById('action-text').textContent = latest.action ?? z.action;
   document.getElementById('stat-price').textContent = fmtUSD(latest.close);
-  document.getElementById('stat-mult').textContent = (latest.multiplier ?? 1).toFixed(1) + '\u00d7';
+  document.getElementById('stat-size').textContent =
+    latest.size_usd != null ? `$${latest.size_usd}` : (z.mult == null ? 'SELL' : `$${z.size}`);
 
-  drawGauge(latest.composite_score);
+  drawGauge(latest.composite_score, z.color);
+
+  const ruleTable = document.getElementById('rule-table');
+  ruleTable.innerHTML = ZONES.map((zn, i) => {
+    const isActive = latest.zone ? latest.zone === zn.zone : z.zone === zn.zone;
+    const sizeLabel = zn.mult == null ? 'SELL' : `${zn.mult}\u00d7 $${zn.size}`;
+    return `
+      <div class="rule-row ${isActive ? 'active' : ''}" style="${isActive ? `border-color:${zn.color}66;` : ''}">
+        <div class="rc-score" style="color:${zn.color};">${zoneRangeLabel(i)}</div>
+        <div class="rc-zone" style="color:${zn.color};">${zn.zone}</div>
+        <div class="rc-mult">${zn.mult == null ? '—' : zn.mult + '\u00d7'}</div>
+        <div class="rc-size" style="color:${zn.color};">${sizeLabel}</div>
+        <div class="rc-action">${zn.action}</div>
+      </div>`;
+  }).join('');
 
   const compList = document.getElementById('comp-list');
   compList.innerHTML = COMPONENT_META.map(c => {
