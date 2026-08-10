@@ -215,42 +215,66 @@ def build_output(df: pd.DataFrame) -> list:
     return out
 
 
+def load_existing_closes() -> pd.DataFrame:
+    """Reconstruct a date/close DataFrame from the existing history file, if any."""
+    if not HISTORY_FILE.exists():
+        return pd.DataFrame(columns=["date", "close"])
+    existing = json.loads(HISTORY_FILE.read_text())
+    if not existing:
+        return pd.DataFrame(columns=["date", "close"])
+    df = pd.DataFrame({
+        "date": pd.to_datetime([r["date"] for r in existing]),
+        "close": [r["close"] for r in existing],
+    })
+    return df
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--update", action="store_true",
-                         help="Only fetch recent candles (last 400 days) instead of full history. "
-                              "Faster for daily cron runs; still recomputes rolling metrics correctly "
-                              "because 400d > 200d MA window.")
+                         help="Only fetch recent candles (last 400 days) instead of the full "
+                              "history from Binance. Indicators are still recomputed over the "
+                              "FULL closing-price series (existing history + freshly fetched "
+                              "tail merged) so results match a full recompute exactly — this "
+                              "flag only speeds up the network fetch, not the math.")
     args = parser.parse_args()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    if args.update:
+    existing_df = load_existing_closes() if args.update else pd.DataFrame(columns=["date", "close"])
+
+    if args.update and not existing_df.empty:
         start_ms = int((pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=400)).timestamp() * 1000)
     else:
+        # No prior history to merge into (or a full run was requested) -> fetch everything.
         start_ms = int(BINANCE_LISTING_DATE.timestamp() * 1000)
 
     print(f"Fetching BTCUSDT daily klines from Binance (start={pd.to_datetime(start_ms, unit='ms')})...")
     rows = fetch_klines(start_time_ms=start_ms)
-    df = klines_to_df(rows)
-    print(f"Fetched {len(df)} daily candles, {df['date'].min().date()} to {df['date'].max().date()}")
+    fetched_df = klines_to_df(rows)
+    print(f"Fetched {len(fetched_df)} daily candles, {fetched_df['date'].min().date()} to {fetched_df['date'].max().date()}")
+
+    # Merge fetched candles on top of existing history so every component (log-regression fit,
+    # expanding percentile ranks, 200d MA, etc.) is computed over the FULL price series, not
+    # just the freshly fetched window. Fetched rows win on overlapping dates (fresher close).
+    if not existing_df.empty:
+        df = (
+            pd.concat([existing_df, fetched_df], ignore_index=True)
+            .drop_duplicates(subset="date", keep="last")
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+        print(f"Merged with existing history: {len(df)} total daily candles, "
+              f"{df['date'].min().date()} to {df['date'].max().date()}")
+    else:
+        df = fetched_df
 
     df = compute_components(df)
     df = compute_composite(df)
     output = build_output(df)
 
-    if args.update and HISTORY_FILE.exists():
-        # merge: keep old history, overwrite/append recomputed recent tail
-        existing = json.loads(HISTORY_FILE.read_text())
-        existing_by_date = {r["date"]: r for r in existing}
-        for r in output:
-            existing_by_date[r["date"]] = r
-        merged = sorted(existing_by_date.values(), key=lambda r: r["date"])
-        HISTORY_FILE.write_text(json.dumps(merged, indent=2))
-        print(f"Updated {HISTORY_FILE}, {len(merged)} total rows")
-    else:
-        HISTORY_FILE.write_text(json.dumps(output, indent=2))
-        print(f"Wrote {HISTORY_FILE}, {len(output)} rows")
+    HISTORY_FILE.write_text(json.dumps(output, indent=2))
+    print(f"Wrote {HISTORY_FILE}, {len(output)} rows")
 
     if output:
         latest = output[-1]
