@@ -4,10 +4,13 @@ BTC Risk Score — daily composite 0-1 score from Binance public OHLCV data.
 Components (all normalized 0-1 via expanding historical percentile rank,
 so the score self-calibrates over time without hardcoded thresholds):
 
-  1. Log-regression band position   (50%) — price vs. long-term log-log growth curve
-  2. 200-day MA multiple            (30%) — price stretch vs. long-term trend
-  3. RSI-14 (daily)                 (10%) — short-term overbought/oversold
-  4. Volatility-adjusted momentum   (10%) — 30d return / 30d realized vol
+  1. Log-regression band position   (35%) — price vs. long-term log-log growth curve
+  2. 200-day MA multiple            (25%) — price stretch vs. long-term trend
+  3. RSI-14 (daily)                 (20%) — short-term overbought/oversold
+  4. Volatility-adjusted momentum   (20%) — 30d return / 30d realized vol
+
+  A 3-day EMA is applied to the composite score before zone lookup, to reduce
+  day-to-day whipsaw from sharp single-day price moves.
 
 0 = cheap / accumulate harder.  1 = expensive / reduce or take profit.
 
@@ -34,11 +37,19 @@ DATA_DIR = Path(__file__).parent / "data"
 HISTORY_FILE = DATA_DIR / "btc_risk_history.json"
 
 WEIGHTS = {
-    "log_regression": 0.50,
-    "ma200_multiple": 0.30,
-    "rsi14": 0.10,
-    "vol_adj_momentum": 0.10,
+    "log_regression": 0.35,
+    "ma200_multiple": 0.25,
+    "rsi14": 0.20,
+    "vol_adj_momentum": 0.20,
 }
+
+# EMA smoothing span applied to the composite score to reduce day-to-day
+# whipsaw. Weight reallocation alone doesn't fix this — even a component with
+# low weight can still swing the composite several points on a sharp price
+# day, since normalization is relative to full history. Smoothing directly
+# targets the actual symptom (fast day-to-day jumps) without diluting what
+# each component measures.
+SMOOTH_SPAN_DAYS = 3
 
 BINANCE_LISTING_DATE = pd.Timestamp("2017-08-17")  # BTCUSDT earliest daily candle on Binance
 
@@ -147,12 +158,18 @@ def compute_components(df: pd.DataFrame) -> pd.DataFrame:
 
 def compute_composite(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["composite_score"] = (
+    df["composite_score_raw"] = (
         df["log_regression"] * WEIGHTS["log_regression"]
         + df["ma200_multiple"] * WEIGHTS["ma200_multiple"]
         + df["rsi14"] * WEIGHTS["rsi14"]
         + df["vol_adj_momentum"] * WEIGHTS["vol_adj_momentum"]
     )
+    # Smoothed score is what drives the zone/action lookup. Raw score is kept
+    # in the output too, in case it's useful to see how much smoothing is
+    # pulling a given day's reading.
+    df["composite_score"] = df["composite_score_raw"].ewm(
+        span=SMOOTH_SPAN_DAYS, min_periods=1, adjust=False
+    ).mean()
     return df
 
 
@@ -200,6 +217,7 @@ def build_output(df: pd.DataFrame) -> list:
             "date": row["date"].strftime("%Y-%m-%d"),
             "close": round(row["close"], 2),
             "composite_score": round(row["composite_score"], 4),
+            "composite_score_raw": round(row["composite_score_raw"], 4) if not pd.isna(row["composite_score_raw"]) else None,
             "zone": z["zone"],
             "tier": z["tier"],
             "multiplier": z["multiplier"],
