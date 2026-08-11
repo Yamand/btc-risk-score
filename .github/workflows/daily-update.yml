@@ -32,3 +32,9 @@ jobs:
           git add data/btc_risk_history.json
           git diff --cached --quiet || git commit -m "Daily BTC risk score update"
           git push
+
+      - name: Send Telegram alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python btc_risk_alert.py
