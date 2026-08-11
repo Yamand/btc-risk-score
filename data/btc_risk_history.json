@@ -48369,8 +48369,8 @@
   },
   {
     "date": "2026-08-11",
-    "close": 64063.58,
-    "composite_score": 0.348,
+    "close": 64056.07,
+    "composite_score": 0.3478,
     "zone": "Reduced Buy",
     "tier": "buy",
     "multiplier": 0.5,
@@ -48378,8 +48378,8 @@
     "action": "Slow down",
     "components": {
       "log_regression": 0.1944,
-      "ma200_multiple": 0.3464,
-      "rsi14": 0.4898,
+      "ma200_multiple": 0.3461,
+      "rsi14": 0.4893,
       "vol_adj_momentum": 0.4768
     }
   }
