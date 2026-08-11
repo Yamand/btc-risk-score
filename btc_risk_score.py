@@ -9,9 +9,6 @@ so the score self-calibrates over time without hardcoded thresholds):
   3. RSI-14 (daily)                 (20%) — short-term overbought/oversold
   4. Volatility-adjusted momentum   (20%) — 30d return / 30d realized vol
 
-  A 3-day EMA is applied to the composite score before zone lookup, to reduce
-  day-to-day whipsaw from sharp single-day price moves.
-
 0 = cheap / accumulate harder.  1 = expensive / reduce or take profit.
 
 Usage:
@@ -52,13 +49,6 @@ WEIGHTS = {
     "rsi14": 0.20,
     "vol_adj_momentum": 0.20,
 }
-
-# EMA smoothing span applied to the composite score to reduce day-to-day
-# whipsaw. This is a belt-and-suspenders addition on top of the full-history
-# recompute fix above — that fix removes the artificial swings caused by a
-# shifting regression window, but daily RSI/momentum noise on real price
-# moves is still real and worth smoothing.
-SMOOTH_SPAN_DAYS = 3
 
 BINANCE_LISTING_DATE = pd.Timestamp("2017-08-17")  # BTCUSDT earliest daily candle on Binance
 
@@ -167,18 +157,12 @@ def compute_components(df: pd.DataFrame) -> pd.DataFrame:
 
 def compute_composite(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["composite_score_raw"] = (
+    df["composite_score"] = (
         df["log_regression"] * WEIGHTS["log_regression"]
         + df["ma200_multiple"] * WEIGHTS["ma200_multiple"]
         + df["rsi14"] * WEIGHTS["rsi14"]
         + df["vol_adj_momentum"] * WEIGHTS["vol_adj_momentum"]
     )
-    # Smoothed score is what drives the zone/action lookup. Raw score is kept
-    # in the output too, in case it's useful to see how much smoothing is
-    # pulling a given day's reading.
-    df["composite_score"] = df["composite_score_raw"].ewm(
-        span=SMOOTH_SPAN_DAYS, min_periods=1, adjust=False
-    ).mean()
     return df
 
 
@@ -226,7 +210,6 @@ def build_output(df: pd.DataFrame) -> list:
             "date": row["date"].strftime("%Y-%m-%d"),
             "close": round(row["close"], 2),
             "composite_score": round(row["composite_score"], 4),
-            "composite_score_raw": round(row["composite_score_raw"], 4) if not pd.isna(row["composite_score_raw"]) else None,
             "zone": z["zone"],
             "tier": z["tier"],
             "multiplier": z["multiplier"],
