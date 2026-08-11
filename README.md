@@ -16,10 +16,22 @@ maintain; the scale self-calibrates as more history accumulates.
 
 | Component | Weight | What it captures |
 |---|---|---|
-| Log-regression band position | 50% | Price vs. long-term log-log growth curve, refit each run |
-| 200-day MA multiple | 30% | Price stretch vs. long-term trend (price ÷ 200d MA) |
-| RSI-14 (daily) | 10% | Short-term overbought/oversold |
-| Volatility-adjusted momentum | 10% | 30d return ÷ 30d realized volatility |
+| Log-regression band position | 35% | Price vs. long-term log-log growth curve, refit each run |
+| 200-day MA multiple | 25% | Price stretch vs. long-term trend (price ÷ 200d MA) |
+| RSI-14 (daily) | 20% | Short-term overbought/oversold |
+| Volatility-adjusted momentum | 20% | 30d return ÷ 30d realized volatility |
+
+Composite = weighted sum of the four, then smoothed with a **3-day EMA**
+before being used for zone lookup. The raw (unsmoothed) score is still saved
+in the output as `composite_score_raw` in case it's useful to compare.
+
+**Why smoothing, not just reweighting:** early on this was "fixed" by shifting
+weight toward the slower log-regression component, but that didn't actually
+solve it — even a component with reduced weight can still swing the composite
+several points on a sharp single-day price move, since each component is
+normalized relative to full history rather than to a fixed scale. Smoothing
+the final score directly targets the actual symptom (fast day-to-day jumps)
+without changing what each component measures.
 
 Composite = weighted sum of the four, clipped to [0, 1].
 
