@@ -410,21 +410,11 @@ function zoneRangeLabel(i) {
 }
 
 function scoreColor(s) {
-  // green -> amber -> red across 0 -> 1
-  const stops = [
-    [0.00, [51, 209, 122]],
-    [0.50, [245, 196, 81]],
-    [1.00, [240, 85, 63]],
-  ];
-  for (let i = 0; i < stops.length - 1; i++) {
-    const [p0, c0] = stops[i], [p1, c1] = stops[i + 1];
-    if (s >= p0 && s <= p1) {
-      const t = (s - p0) / (p1 - p0);
-      const c = c0.map((v, idx) => Math.round(v + (c1[idx] - v) * t));
-      return `rgb(${c[0]},${c[1]},${c[2]})`;
-    }
-  }
-  return s < 0 ? 'rgb(51,209,122)' : 'rgb(240,85,63)';
+  // Use the exact same 8-zone color as the gauge and rule table, so the chart's
+  // color at any point tells you precisely which zone that day was in — not a
+  // blurred interpolation that hides tier boundaries.
+  if (s == null || Number.isNaN(s)) return '#5c6478';
+  return zoneFor(s).color;
 }
 
 function drawGauge(score, needleColor) {
@@ -542,6 +532,30 @@ async function init() {
 
   let priceChart, componentChart;
 
+  // Paints faint horizontal bands for each of the 8 zones behind the chart,
+  // keyed to the y1 (risk score) axis, so tier boundaries read at a glance
+  // instead of only on hover.
+  const zoneBandsPlugin = {
+    id: 'zoneBands',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      const y1 = scales.y1;
+      if (!chartArea || !y1) return;
+      ctx.save();
+      let prevUpper = 0;
+      for (const z of ZONES) {
+        const hi = Math.min(z.upper, 1);
+        const yTop = y1.getPixelForValue(hi);
+        const yBottom = y1.getPixelForValue(prevUpper);
+        ctx.fillStyle = z.color;
+        ctx.globalAlpha = 0.05;
+        ctx.fillRect(chartArea.left, yTop, chartArea.right - chartArea.left, yBottom - yTop);
+        prevUpper = hi;
+      }
+      ctx.restore();
+    },
+  };
+
   function sliceData(days) {
     if (!days) return data;
     return data.slice(-days);
@@ -558,6 +572,7 @@ async function init() {
     if (priceChart) priceChart.destroy();
     priceChart = new Chart(document.getElementById('priceChart'), {
       type: 'line',
+      plugins: [zoneBandsPlugin],
       data: {
         labels,
         datasets: [
@@ -600,7 +615,7 @@ async function init() {
             callbacks: {
               label: ctx => {
                 if (ctx.dataset.label === 'BTC/USDT') return `  Price: ${fmtUSD(ctx.parsed.y)}`;
-                return `  Score: ${ctx.parsed.y.toFixed(2)}`;
+                return `  Score: ${ctx.parsed.y.toFixed(2)} — ${zoneFor(ctx.parsed.y).zone}`;
               },
             },
           },
