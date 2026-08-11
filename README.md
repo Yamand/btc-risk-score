@@ -16,10 +16,10 @@ maintain; the scale self-calibrates as more history accumulates.
 
 | Component | Weight | What it captures |
 |---|---|---|
-| Log-regression band position | 35% | Price vs. long-term log-log growth curve, refit each run |
-| 200-day MA multiple | 25% | Price stretch vs. long-term trend (price ÷ 200d MA) |
-| RSI-14 (daily) | 20% | Short-term overbought/oversold |
-| Volatility-adjusted momentum | 20% | 30d return ÷ 30d realized volatility |
+| Log-regression band position | 50% | Price vs. long-term log-log growth curve, refit each run |
+| 200-day MA multiple | 30% | Price stretch vs. long-term trend (price ÷ 200d MA) |
+| RSI-14 (daily) | 10% | Short-term overbought/oversold |
+| Volatility-adjusted momentum | 10% | 30d return ÷ 30d realized volatility |
 
 Composite = weighted sum of the four, clipped to [0, 1].
 
