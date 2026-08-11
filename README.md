@@ -25,15 +25,18 @@ Composite = weighted sum of the four, then smoothed with a **3-day EMA**
 before being used for zone lookup. The raw (unsmoothed) score is still saved
 in the output as `composite_score_raw` in case it's useful to compare.
 
-**Why smoothing, not just reweighting:** early on this was "fixed" by shifting
-weight toward the slower log-regression component, but that didn't actually
-solve it — even a component with reduced weight can still swing the composite
-several points on a sharp single-day price move, since each component is
-normalized relative to full history rather than to a fixed scale. Smoothing
-the final score directly targets the actual symptom (fast day-to-day jumps)
-without changing what each component measures.
-
-Composite = weighted sum of the four, clipped to [0, 1].
+**The real fix for score whipsaw was a bug fix, not reweighting.** `--update`
+used to fetch only the last 400 days and recompute everything — including the
+log-regression fit and every component's percentile-rank basis — using just
+that short window as "history." That meant the regression coefficients (and
+therefore every component) shifted for reasons that had nothing to do with
+actual price movement, purely because the historical window used for the math
+changed day to day. Fixed by caching the **full** raw close-price series in
+`data/btc_prices_raw.json` and always merging + recomputing over complete
+history, so `--update` and a full backfill produce identical results — it's
+only faster because it skips redundant Binance requests, not because it uses
+less data for the math. The 3-day EMA smoothing is a secondary, optional
+layer on top of that fix, for the genuine day-to-day noise that's left over.
 
 **Caveat on the log-regression component:** Binance's BTCUSDT pair only has
 daily candles back to **2017-08-17**. A "real" BTC log-regression band is
@@ -48,9 +51,10 @@ instead of fit live — not done here to keep this Binance-only.
 ## Repo structure
 
 ```
-btc_risk_score.py              # fetch + compute + write data/btc_risk_history.json
-data/btc_risk_history.json     # generated — one row per day
-index.html                     # static site, reads data/ directly, Chart.js
+btc_risk_score.py                    # fetch + compute + write data/
+data/btc_risk_history.json           # generated — one scored row per day
+data/btc_prices_raw.json             # generated — full raw close-price cache (see above)
+index.html                           # static site, reads data/ directly, Chart.js
 .github/workflows/daily-update.yml   # cron job, runs btc_risk_score.py --update daily
 ```
 
@@ -58,19 +62,24 @@ index.html                     # static site, reads data/ directly, Chart.js
 
 1. Push this repo to GitHub, enable **GitHub Pages** (Settings → Pages →
    Deploy from branch → `main` / root).
-2. Run the full backfill once, locally or via Actions "Run workflow" with
-   the `--update` flag removed (see below), so `data/btc_risk_history.json`
-   exists before the site goes live.
-3. The daily workflow (`daily-update.yml`) runs automatically at 00:15 UTC,
-   pulls the last 400 days from Binance, recomputes rolling metrics, and
-   commits the updated JSON. GitHub Pages redeploys automatically on push.
+2. Run a full backfill once, locally, so both `data/btc_risk_history.json`
+   and `data/btc_prices_raw.json` exist before the site goes live — see
+   "Local run" below.
+3. Commit **both** files in `data/` — the workflow commits both on every run
+   too, since `btc_prices_raw.json` has to persist across runs for `--update`
+   to work correctly (a fresh checkout with no cached prices falls back to a
+   full fetch automatically, but that defeats the point of `--update`).
+4. The daily workflow (`daily-update.yml`) runs automatically at 00:15 UTC,
+   fetches the last 400 days, merges with the cached full history, recomputes,
+   and commits both updated JSON files. GitHub Pages redeploys automatically
+   on push.
 
 ### Local run
 
 ```bash
 pip install pandas numpy requests
 python btc_risk_score.py            # full history backfill (first run)
-python btc_risk_score.py --update   # fast daily run (last 400 days only)
+python btc_risk_score.py --update   # fast daily run — same math, fewer requests
 python -m http.server 8000          # then open localhost:8000
 ```
 
