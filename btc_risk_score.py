@@ -4,10 +4,10 @@ BTC Risk Score — daily composite 0-1 score from Binance public OHLCV data.
 Components (all normalized 0-1 via expanding historical percentile rank,
 so the score self-calibrates over time without hardcoded thresholds):
 
-  1. Log-regression band position   (35%) — price vs. long-term log-log growth curve
-  2. 200-day MA multiple            (25%) — price stretch vs. long-term trend
-  3. RSI-14 (daily)                 (20%) — short-term overbought/oversold
-  4. Volatility-adjusted momentum   (20%) — 30d return / 30d realized vol
+  1. Log-regression band position   (50%) — price vs. long-term log-log growth curve
+  2. 200-day MA multiple            (30%) — price stretch vs. long-term trend
+  3. RSI-14 (daily)                 (10%) — short-term overbought/oversold
+  4. Volatility-adjusted momentum   (10%) — 30d return / 30d realized vol
 
 0 = cheap / accumulate harder.  1 = expensive / reduce or take profit.
 
@@ -32,22 +32,12 @@ SYMBOL = "BTCUSDT"
 INTERVAL = "1d"
 DATA_DIR = Path(__file__).parent / "data"
 HISTORY_FILE = DATA_DIR / "btc_risk_history.json"
-# Raw close-price cache: EVERY fetched date/close, including the pre-warmup
-# rows that never get a composite_score (dropped from HISTORY_FILE by
-# build_output). --update merges from THIS file, not from HISTORY_FILE, so
-# the regression fit and expanding percentile ranks always see the full
-# price series and match a full recompute exactly. Reconstructing prices
-# from the scored output alone silently drops the earliest ~200-260 days,
-# which skews the global log-regression fit (those rows anchor the low end
-# of the log-days range) and can shift the composite score enough to flip
-# a DCA zone near a boundary.
-PRICES_FILE = DATA_DIR / "btc_prices_raw.json"
 
 WEIGHTS = {
-    "log_regression": 0.35,
-    "ma200_multiple": 0.25,
-    "rsi14": 0.20,
-    "vol_adj_momentum": 0.20,
+    "log_regression": 0.50,
+    "ma200_multiple": 0.30,
+    "rsi14": 0.10,
+    "vol_adj_momentum": 0.10,
 }
 
 BINANCE_LISTING_DATE = pd.Timestamp("2017-08-17")  # BTCUSDT earliest daily candle on Binance
@@ -225,78 +215,42 @@ def build_output(df: pd.DataFrame) -> list:
     return out
 
 
-def load_existing_closes() -> pd.DataFrame:
-    """
-    Load the FULL raw close-price cache (not the scored HISTORY_FILE, which is
-    missing the pre-warmup rows — see PRICES_FILE comment above for why that
-    distinction matters).
-    """
-    if not PRICES_FILE.exists():
-        return pd.DataFrame(columns=["date", "close"])
-    existing = json.loads(PRICES_FILE.read_text())
-    if not existing:
-        return pd.DataFrame(columns=["date", "close"])
-    df = pd.DataFrame({
-        "date": pd.to_datetime([r["date"] for r in existing]),
-        "close": [r["close"] for r in existing],
-    })
-    return df
-
-
-def save_prices_raw(df: pd.DataFrame) -> None:
-    """Persist the full date/close series (including pre-warmup rows) for future merges."""
-    rows = [{"date": d.strftime("%Y-%m-%d"), "close": round(c, 2)}
-            for d, c in zip(df["date"], df["close"])]
-    PRICES_FILE.write_text(json.dumps(rows, indent=2))
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--update", action="store_true",
-                         help="Only fetch recent candles (last 400 days) instead of the full "
-                              "history from Binance. Indicators are still recomputed over the "
-                              "FULL closing-price series (existing history + freshly fetched "
-                              "tail merged) so results match a full recompute exactly — this "
-                              "flag only speeds up the network fetch, not the math.")
+                         help="Only fetch recent candles (last 400 days) instead of full history. "
+                              "Faster for daily cron runs; still recomputes rolling metrics correctly "
+                              "because 400d > 200d MA window.")
     args = parser.parse_args()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    existing_df = load_existing_closes() if args.update else pd.DataFrame(columns=["date", "close"])
-
-    if args.update and not existing_df.empty:
+    if args.update:
         start_ms = int((pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=400)).timestamp() * 1000)
     else:
-        # No prior history to merge into (or a full run was requested) -> fetch everything.
         start_ms = int(BINANCE_LISTING_DATE.timestamp() * 1000)
 
     print(f"Fetching BTCUSDT daily klines from Binance (start={pd.to_datetime(start_ms, unit='ms')})...")
     rows = fetch_klines(start_time_ms=start_ms)
-    fetched_df = klines_to_df(rows)
-    print(f"Fetched {len(fetched_df)} daily candles, {fetched_df['date'].min().date()} to {fetched_df['date'].max().date()}")
-
-    # Merge fetched candles on top of existing history so every component (log-regression fit,
-    # expanding percentile ranks, 200d MA, etc.) is computed over the FULL price series, not
-    # just the freshly fetched window. Fetched rows win on overlapping dates (fresher close).
-    if not existing_df.empty:
-        df = (
-            pd.concat([existing_df, fetched_df], ignore_index=True)
-            .drop_duplicates(subset="date", keep="last")
-            .sort_values("date")
-            .reset_index(drop=True)
-        )
-        print(f"Merged with existing history: {len(df)} total daily candles, "
-              f"{df['date'].min().date()} to {df['date'].max().date()}")
-    else:
-        df = fetched_df
+    df = klines_to_df(rows)
+    print(f"Fetched {len(df)} daily candles, {df['date'].min().date()} to {df['date'].max().date()}")
 
     df = compute_components(df)
     df = compute_composite(df)
     output = build_output(df)
 
-    save_prices_raw(df[["date", "close"]])
-    HISTORY_FILE.write_text(json.dumps(output, indent=2))
-    print(f"Wrote {HISTORY_FILE}, {len(output)} rows ({PRICES_FILE.name} raw cache also updated)")
+    if args.update and HISTORY_FILE.exists():
+        # merge: keep old history, overwrite/append recomputed recent tail
+        existing = json.loads(HISTORY_FILE.read_text())
+        existing_by_date = {r["date"]: r for r in existing}
+        for r in output:
+            existing_by_date[r["date"]] = r
+        merged = sorted(existing_by_date.values(), key=lambda r: r["date"])
+        HISTORY_FILE.write_text(json.dumps(merged, indent=2))
+        print(f"Updated {HISTORY_FILE}, {len(merged)} total rows")
+    else:
+        HISTORY_FILE.write_text(json.dumps(output, indent=2))
+        print(f"Wrote {HISTORY_FILE}, {len(output)} rows")
 
     if output:
         latest = output[-1]
