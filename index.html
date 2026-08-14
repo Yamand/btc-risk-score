@@ -567,7 +567,17 @@ async function init() {
 
   function renderCharts(days) {
     const rows = sliceData(days);
-    const labels = rows.map(r => r.date);
+
+    // Category scales in chartjs-plugin-zoom can't pan past the real data
+    // range no matter what `limits` says, so we pad with blank slots on
+    // each side to give panning actual room to move into.
+    const PAD = Math.max(3, Math.round(rows.length * 0.04));
+    const labels = [
+      ...Array(PAD).fill(''),
+      ...rows.map(r => r.date),
+      ...Array(PAD).fill(''),
+    ];
+    const padArr = arr => [...Array(PAD).fill(null), ...arr, ...Array(PAD).fill(null)];
 
     if (priceChart) priceChart.destroy();
     priceChart = new Chart(document.getElementById('priceChart'), {
@@ -578,7 +588,7 @@ async function init() {
         datasets: [
           {
             label: 'BTC/USDT',
-            data: rows.map(r => r.close),
+            data: padArr(rows.map(r => r.close)),
             borderColor: '#00d9ff',
             backgroundColor: 'rgba(0,217,255,0.06)',
             borderWidth: 1.6,
@@ -586,20 +596,22 @@ async function init() {
             yAxisID: 'y',
             tension: 0.15,
             fill: true,
+            spanGaps: false,
           },
           {
             label: 'Risk score',
-            data: rows.map(r => r.composite_score),
+            data: padArr(rows.map(r => r.composite_score)),
             borderColor: 'rgba(255,255,255,0.5)',
             borderWidth: 1.4,
             pointRadius: rows.length < 200 ? 2 : 0,
-            pointBackgroundColor: pointColors(rows),
+            pointBackgroundColor: [...Array(PAD).fill('transparent'), ...pointColors(rows), ...Array(PAD).fill('transparent')],
             pointBorderWidth: 0,
             segment: {
-              borderColor: ctx => scoreColor((rows[ctx.p0DataIndex]?.composite_score ?? 0)),
+              borderColor: ctx => scoreColor((rows[ctx.p0DataIndex - PAD]?.composite_score ?? 0)),
             },
             yAxisID: 'y1',
             tension: 0.1,
+            spanGaps: false,
           },
         ],
       },
