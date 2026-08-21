@@ -38194,14 +38194,14 @@
   {
     "date": "2024-11-13",
     "close": 90375.2,
-    "composite_score": 0.8191,
+    "composite_score": 0.8192,
     "zone": "Sell Tier 3 / Exit",
     "tier": "sell3",
     "multiplier": null,
     "size_usd": null,
     "action": "Exit 20% or full position",
     "components": {
-      "log_regression": 0.7751,
+      "log_regression": 0.7755,
       "ma200_multiple": 0.7808,
       "rsi14": 0.8384,
       "vol_adj_momentum": 0.9244
@@ -48529,8 +48529,8 @@
   },
   {
     "date": "2026-08-21",
-    "close": 76535.87,
-    "composite_score": 0.5823,
+    "close": 76460.08,
+    "composite_score": 0.5817,
     "zone": "Stop \u2014 Hold",
     "tier": "hold",
     "multiplier": 0.0,
@@ -48538,9 +48538,9 @@
     "action": "Accumulation done",
     "components": {
       "log_regression": 0.3548,
-      "ma200_multiple": 0.562,
-      "rsi14": 0.8444,
-      "vol_adj_momentum": 0.7436
+      "ma200_multiple": 0.5608,
+      "rsi14": 0.8437,
+      "vol_adj_momentum": 0.743
     }
   }
 ]
