@@ -3720,8 +3720,9 @@ function renderAllocationUI(savings, summary) {
     `).join('');
   }
   
-  // Edit targets button
-  document.getElementById('alloc-edit-targets').addEventListener('click', () => {
+  // Edit targets button (assign via onclick, not addEventListener, so re-renders
+  // don't stack duplicate handlers on the same button)
+  document.getElementById('alloc-edit-targets').onclick = () => {
     const newTargets = {};
     let totalTarget = 0;
     
@@ -3742,7 +3743,7 @@ function renderAllocationUI(savings, summary) {
       saveTargetAllocation(newTargets);
       renderAllocationUI(savings, summary);  // Re-render with new targets
     }
-  });
+  };
 }
 
 async function loadAll() {
