@@ -489,9 +489,9 @@ const COMPONENT_META = [
 // Mirrors ZONES in btc_risk_score.py — base $10/week
 const ZONES = [
   { upper: 0.10, zone: 'Extreme Buy',        mult: 3.0,  size: 30, action: 'Max accumulate',           color: '#16a34a', mood: 'Thriving',  eyes: 'happy',   mouth: 'grin',      particle: 'sparkle', anim: 'anim-extreme_buy' },
-  { upper: 0.20, zone: 'Strong Buy',         mult: 1.5,  size: 15, action: 'Accumulate',                color: '#22c55e', mood: 'Excited',   eyes: 'happy',   mouth: 'smile',     particle: 'sparkle', anim: 'anim-strong_buy' },
-  { upper: 0.25, zone: 'Buy',                mult: 1.0,  size: 10, action: 'Normal DCA',                color: '#4ade80', mood: 'Content',   eyes: 'open',    mouth: 'smile',     particle: 'none',    anim: 'anim-buy' },
-  { upper: 0.35, zone: 'Reduced Buy',        mult: 0.5,  size: 5,  action: 'Slow down',                 color: '#86efac', mood: 'Calm',      eyes: 'open',    mouth: 'neutral',   particle: 'none',    anim: 'anim-reduced_buy' },
+  { upper: 0.25, zone: 'Strong Buy',         mult: 1.5,  size: 15, action: 'Accumulate',                color: '#22c55e', mood: 'Excited',   eyes: 'happy',   mouth: 'smile',     particle: 'sparkle', anim: 'anim-strong_buy' },
+  { upper: 0.35, zone: 'Buy',                mult: 1.0,  size: 10, action: 'Normal DCA',                color: '#4ade80', mood: 'Content',   eyes: 'open',    mouth: 'smile',     particle: 'none',    anim: 'anim-buy' },
+  { upper: 0.45, zone: 'Reduced Buy',        mult: 0.5,  size: 5,  action: 'Slow down',                 color: '#86efac', mood: 'Calm',      eyes: 'open',    mouth: 'neutral',   particle: 'none',    anim: 'anim-reduced_buy' },
   { upper: 0.60, zone: 'Stop — Hold',        mult: 0.0,  size: 0,  action: 'Accumulation done',         color: '#9aa4b5', mood: 'Resting',   eyes: 'flat',    mouth: 'neutral',   particle: 'none',    anim: 'anim-hold' },
   { upper: 0.70, zone: 'Sell Tier 1',        mult: null, size: null, action: 'Exit 5% of holdings',     color: '#f5a623', mood: 'Worried',   eyes: 'worried', mouth: 'frownsoft', particle: 'sweat',   anim: 'anim-sell1' },
   { upper: 0.80, zone: 'Sell Tier 2',        mult: null, size: null, action: 'Exit 10% of holdings',    color: '#f0713f', mood: 'Stressed',  eyes: 'wide',    mouth: 'frown',     particle: 'sweat',   anim: 'anim-sell2' },
